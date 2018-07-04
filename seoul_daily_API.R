@@ -1,6 +1,5 @@
 library(RCurl)
 library(jsonlite)
-library(dplyr)
 
 # start_d : 불러올 시작일 ex) 20100101
 # end_d : 불러올 종료일 ex) 20100102
