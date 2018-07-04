@@ -1,4 +1,4 @@
-library(RCcurl)
+library(RCurl)
 library(jsonlite)
 library(dplyr)
 
