@@ -60,14 +60,65 @@ seoul_daily$STN_NM <- ifelse(seoul_daily$STN_NM == "중구", "중구", paste0(se
 colnames(seoul_daily) <- c("date", "gungu", "temp", "humi", "wind", "rain")
 seoul_daily <- seoul_daily %>%
   filter(gungu != "남산구")
+seoul_daily$date <- lubridate::ymd(seoul_daily$date)
 car_acci <- car_acci %>%
   filter(sido == "서울")
 
-# car_acci에서 sido가 서울인 것만 뽑아서 seoul_daily와 합치기
-car_kma <- merge(car_acci, seoul_daily, by = c("date", "gungu"))
+# seoul_daily에 비어있는 날짜 채우기
+
+seoul_daily <- seoul_daily %>%
+  arrange(gungu, date) %>%
+  group_by(gungu) %>%
+  tidyr::complete(date = seq.Date(lubridate::ymd("2017-01-01"), lubridate::ymd("2017-12-31"), by = "day"))
+seoul_daily <- data.frame(seoul_daily)
+
+
+### 일별 평균으로 대체하기
+## 내가 선택한 방법은 일단, missing이 있는 data와 없는 data로 나눠서, missing을 채우고 다시 합치는 것
+seoul_daily_miss <- seoul_daily %>%
+  filter(is.na(seoul_daily$temp))
+
+seoul_daily_obs <- seoul_daily %>%
+  filter(!is.na(seoul_daily$temp))
+
+kma_mean <- seoul_daily %>% # 4개 11-03, 11-04, 11-05, 11-06는 25개구 전체 결측값
+  group_by(date) %>%
+  summarise(m_temp = mean(temp, na.rm = TRUE), m_humi = mean(humi, na.rm = TRUE), m_wind = mean(wind, na.rm = TRUE), m_rain = mean(rain, na.rm = TRUE))
+kma_mean <- data.frame(kma_mean)
+
+seoul_daily_miss <- merge(seoul_daily_miss, kma_mean, by = "date")
+seoul_daily_miss <- seoul_daily_miss[,-c(3:6)]
+colnames(seoul_daily_miss) <- c("date", "gungu", "temp", "humi", "wind", "rain")
+
+seoul <- plyr::join(seoul_daily_miss, seoul_daily_obs, type = "full")
+
+## 날짜가 11-03, 11-04, 11-05, 11-06인 25개구가 모두 결측치를 갖고 있으므로 11-03, 11-04에는 11-02의 데이터를, 11-05, 11-06에는 11-07의 데이터로 대체함
+date_obs <- seoul %>% filter(!is.na(temp))
+
+date_1102 <- seoul %>% filter(date == "2017-11-02")
+date_1107 <- seoul %>% filter(date == "2017-11-07")
+
+date_03_04 <- seoul %>% filter(date == "2017-11-03" | date == "2017-11-04")
+date_05_06 <- seoul %>% filter(date == "2017-11-05" | date == "2017-11-06")
+
+date_02_03_04 <- merge(date_03_04, date_1102, by = "gungu")
+date_07_05_06 <- merge(date_05_06, date_1102, by = "gungu")
+date_02_03_04 <- date_02_03_04[,c(1:2, 8:11)]
+date_07_05_06 <- date_07_05_06[,c(1:2, 8:11)]
+
+date_miss <- plyr::join(date_02_03_04, date_07_05_06, type = "full")
+colnames(date_miss) <- c("gungu", "date", "temp", "humi", "wind", "rain")
+
+seoul_final <- plyr::join(date_obs, date_miss, type = "full")
+seoul_final <- seoul_final %>%
+  arrange(date, gungu)
+
+write.csv(seoul_final, "C:/kma/kma/seoul_daily.csv")
 
 
 
+
+  
 
 
 
