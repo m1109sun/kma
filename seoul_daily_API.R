@@ -36,4 +36,5 @@ get_daily_seoul <- function(start_d, end_d, personal_key){
   weather_information
 }
 
-Example <- get_daily_seoul("20160101", "20160110", "426175456b6d313134387865684266")
+Example <- get_daily_seoul("20170101", "20171231", "personal_key")
+
