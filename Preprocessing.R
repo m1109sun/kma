@@ -120,3 +120,7 @@ car_acci <- data.frame(car_acci)
 
 acci_seoul <- merge(car_acci, seoul, by = c("date", "gungu"))
 
+# plot 그리기 위해서 factor level을 월, 화, 수, 목, 금, 토, 일 순서로 변경
+acci_seoul$day_week <- factor(acci_seoul$day_week, levels = c("월", "화", "수", "목", "금", "토", "일"))
+
+
