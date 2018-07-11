@@ -33,17 +33,19 @@ get_daily_seoul <- function(start_d, end_d, personal_key){
 
 seoul_daily <- get_daily_seoul("20170101", "20171231", "426175456b6d313134387865684266")
 seoul_daily <- seoul_daily %>%
-  select(SAWS_OBS_TM, STN_NM, SAWS_TA_AVG, SAWS_HD_AVG, SAWS_WS_AVG, SAWS_RN_SUM)
+  dplyr::select(SAWS_OBS_TM, STN_NM, SAWS_TA_AVG, SAWS_TA_MIN, SAWS_TA_MAX, SAWS_WS_AVG, SAWS_RN_SUM)
 
 # seoul_daily의 sido와 car_acci의 sido 차이점 비교
+
 seoul <- unique(seoul_daily$STN_NM) # 남산이 있음 # 중구는 같음 # ex) 동대문
 car <- car_acci %>% filter(sido == "서울")
 car <- unique(car$gungu) # 남산이 없음 # 중구는 같음 # ex) 동대문구
 
 # seoul 시군구 car_acci와 통일 시키기(car_acci에는 남산구가 없으므로 seoul_daily에서 남산구를 삭제)
 # car_acci에는 서울, 경기, 제주가 다 있는데 서울만 가져오기
+
 seoul_daily$STN_NM <- ifelse(seoul_daily$STN_NM == "중구", "중구", paste0(seoul_daily$STN_NM, "구"))
-colnames(seoul_daily) <- c("date", "gungu", "temp", "humi", "wind", "rain")
+colnames(seoul_daily) <- c("date", "gungu", "mean_temp", "low_temp", "high_temp", "wind", "rain")
 seoul_daily <- seoul_daily %>%
   filter(gungu != "남산구")
 seoul_daily$date <- lubridate::ymd(seoul_daily$date)
@@ -58,50 +60,68 @@ seoul_daily <- seoul_daily %>%
   tidyr::complete(date = seq.Date(lubridate::ymd("2017-01-01"), lubridate::ymd("2017-12-31"), by = "day"))
 seoul_daily <- data.frame(seoul_daily)
 
+# 방재기상관측 2012 ~ 2017 데이터 불러오기 (종로구가 따로 없어서 북악산(422)를 종로구로 함, 동작구가 따로 없어서 현충원(889)를 동작구로 함)
 
-### 일별 평균으로 대체하기
-## 내가 선택한 방법은 일단, missing이 있는 data와 없는 data로 나눠서, missing을 채우고 다시 합치는 것
+bangjae <- read.csv("C:/kma/kma/bangjae_data.csv", header = TRUE)
+
+# 내가 선택한 방법은 일단, missing이 있는 data와 없는 data로 나눠서, missing을 채우고 다시 합치는 것
+
 seoul_daily_miss <- seoul_daily %>%
-  filter(is.na(seoul_daily$temp))
-
+  filter(is.na(seoul_daily$mean_temp))
+seoul_daily_miss <- seoul_daily_miss[,c(1:2)]
 seoul_daily_obs <- seoul_daily %>%
-  filter(!is.na(seoul_daily$temp))
+  filter(!is.na(seoul_daily$mean_temp))
 
-kma_mean <- seoul_daily %>% # 4개 11-03, 11-04, 11-05, 11-06는 25개구 전체 결측값
-  group_by(date) %>%
-  summarise(m_temp = mean(temp, na.rm = TRUE), m_humi = mean(humi, na.rm = TRUE), m_wind = mean(wind, na.rm = TRUE), m_rain = mean(rain, na.rm = TRUE))
-kma_mean <- data.frame(kma_mean)
+# missing이 있는 data를 기상청 방재 data와 합침
 
-seoul_daily_miss <- merge(seoul_daily_miss, kma_mean, by = "date")
-seoul_daily_miss <- seoul_daily_miss[,-c(3:6)]
-colnames(seoul_daily_miss) <- c("date", "gungu", "temp", "humi", "wind", "rain")
+seoul_daily_miss <- merge(seoul_daily_miss, bangjae, by = c("gungu", "date"))
+table(is.na(seoul_daily_miss$mean_temp)) # FALSE : 882, TRUE : 5
+table(is.na(seoul_daily_miss$low_temp)) # FALSE : 882, TRUE : 5
+table(is.na(seoul_daily_miss$high_temp)) # FALSE : 882, TRUE : 5
+table(is.na(seoul_daily_miss$rain)) # FALSE : 887
+table(is.na(seoul_daily_miss$wind)) # FALSE : 882, TRUE : 5
 
-seoul <- plyr::join(seoul_daily_miss, seoul_daily_obs, type = "full")
+# 방재 data로 missing을 채우고 난 후의 data에서 또 missing 값과 아닌 값 뽑아내기
 
-## 날짜가 11-03, 11-04, 11-05, 11-06인 25개구가 모두 결측치를 갖고 있으므로 11-03, 11-04에는 11-02의 데이터를, 11-05, 11-06에는 11-07의 데이터로 대체함
-date_obs <- seoul %>% filter(!is.na(temp))
+seoul_daily_missfill <- seoul_daily_miss %>%
+  filter(!is.na(seoul_daily_miss$mean_temp))
+seoul_daily_missfill <- seoul_daily_missfill[,c(1:2, 4:8)]
 
-date_1102 <- seoul %>% filter(date == "2017-11-02")
-date_1107 <- seoul %>% filter(date == "2017-11-07")
+seoul_daily_miss_miss <- seoul_daily_miss %>% # missing이 5갠데, 강서구이고 date가 09-28, 09-29, 09-30, 10-01, 12-05임
+  filter(is.na(seoul_daily_miss$mean_temp))
+seoul_daily_miss_miss <- seoul_daily_miss_miss[,c(1:3, 7)]
+seoul_daily_miss_miss$mon_day <- substr(seoul_daily_miss_miss$date, 6, 10)
 
-date_03_04 <- seoul %>% filter(date == "2017-11-03" | date == "2017-11-04")
-date_05_06 <- seoul %>% filter(date == "2017-11-05" | date == "2017-11-06")
+# 우리가 불러들인 방재 데이터가 2012 ~ 2017이니까 저 날짜에 해당하는 다른 년도 데이터들을 불러오자
 
-date_02_03_04 <- merge(date_03_04, date_1102, by = "gungu")
-date_07_05_06 <- merge(date_05_06, date_1102, by = "gungu")
-date_02_03_04 <- date_02_03_04[,c(1:2, 8:11)]
-date_07_05_06 <- date_07_05_06[,c(1:2, 8:11)]
+bangjae$month <- month(bangjae$date)
+bangjae$day <- day(bangjae$date)
+  
+miss <- bangjae %>%
+  filter(gungu == "강서구") %>%
+  filter((month == "9" & (day == "28" | day == "29" | day == "30")) | (month == "10" & day == "1") | (month == "12" & day == "5"))
+miss$mon_day <- substr(miss$date, 6, 10)
 
-date_miss <- plyr::join(date_02_03_04, date_07_05_06, type = "full")
-colnames(date_miss) <- c("gungu", "date", "temp", "humi", "wind", "rain")
+miss_avg <- miss %>%
+  group_by(mon_day) %>%
+  summarise(mean_temp = mean(mean_temp, na.rm = TRUE), low_temp = mean(low_temp, na.rm = TRUE), high_temp = mean(high_temp, na.rm = TRUE), wind = mean(wind, na.rm = TRUE))
+miss_avg <- data.frame(miss_avg)
 
-seoul_final <- plyr::join(date_obs, date_miss, type = "full")
-seoul_final <- seoul_final %>%
-  arrange(date, gungu)
+# 5개의 남은 missing 값을 채워보자
 
+seoul_daily_miss_miss <- merge(seoul_daily_miss_miss, miss_avg, by = "mon_day")
+seoul_daily_miss_miss <- seoul_daily_miss_miss[,c(2:3, 5:9)]
 
-## car_acci_2017 
-car_acci <- read.csv('C:/kma/kma/car_acci_2017.csv', header=TRUE)
+# 다 합쳐보자, 최종 seoul 기온 data
+
+seoul <- plyr::join(seoul_daily_miss_miss, seoul_daily_missfill, type = "full")
+seoul_daily <- plyr::join(seoul, seoul_daily_obs, type = "full")
+seoul_daily <- seoul_final %>%
+  arrange(gungu, date)
+
+# car_acci_2017 
+
+car_acci <- read.csv('C:/kma/kma/car_acci_2017.csv', header = TRUE)
 
 car_acci <- car_acci %>%
   group_by(발생년월일시, 주야, 요일, 발생지시도, 발생지시군구, 경도, 위도) %>%
@@ -118,9 +138,10 @@ car_acci <- data.frame(car_acci)
 
 ### car_acci와 seoul 합치기
 
-acci_seoul <- merge(car_acci, seoul, by = c("date", "gungu"))
+acci_seoul <- merge(car_acci, seoul_daily, by = c("date", "gungu"))
 
 # plot 그리기 위해서 factor level을 월, 화, 수, 목, 금, 토, 일 순서로 변경
+
 acci_seoul$day_week <- factor(acci_seoul$day_week, levels = c("월", "화", "수", "목", "금", "토", "일"))
 
 
